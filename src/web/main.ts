@@ -69,6 +69,7 @@ const RULES_HTML = `<section class="rules">
   <li>The trick winner leads next and draws first; both refill to 3 one card at a time.</li>
   <li><b>ვარ:</b> right after winning a trick you may claim 31+. Right: you win the hand at the current stake. Wrong: you lose it. Continuing is final for that trick. If every card is played, the last trick winner's claim is forced.</li>
   <li><b>Raising:</b> on your turn you may raise. Declined → the raiser wins the current stake. Accepted → stake +1, and only the accepter may raise next.</li>
+  <li><b>First to 3</b> mode: the first player to 3 points wins the match, and a player trailing 0–2 may not raise.</li>
   <li>Options (Rules panel): stake cap (default 8), whether the defender may raise after seeing the lead (default yes), three trumps (ბურა) winning instantly (default off).</li>
 </ul>
 <h2>How the AI decides</h2>
@@ -78,7 +79,7 @@ const RULES_HTML = `<section class="rules">
   <li><b>It reads the opponent.</b> Each sampled deal is replayed from the start and weighted by how likely the opponent's actual choices were in it. If they gave cards instead of beating your 10, deals where they could beat it cheaply become less likely.</li>
   <li><b>It searches.</b> Information-Set Monte Carlo Tree Search (ISMCTS) plays thousands of simulated continuations across those deals, building one tree of <i>your</i> information sets, so a move is judged by how it does across all the deals you cannot tell apart — not by peeking at one of them. Each simulated continuation is finished by an exact solver.</li>
   <li><b>Claims (ვარ)</b> are judged from the same weighted deals: the chance your face-down cards push you to 31, against the value of playing on.</li>
-  <li><b>Raises</b> use the win chance: raise at ≥70%; accept a raise when the chance is above 1/(2·(stake+1)) plus a safety margin (the break-even point of accepting).</li>
+  <li><b>Raises</b> use the win chance: raise at ≥70%; accept a raise when the chance is above 1/(2·(stake+1)) plus a safety margin (the break-even point of accepting). In <b>first to 3</b> it compares chances of winning the whole match instead, so it never raises at 2–2 or when leading 2–0.</li>
 </ol>
 <p class="muted">Random deals use the browser's cryptographic random generator. Nothing leaves your device: the AI runs in your browser.</p>
 </section>`;

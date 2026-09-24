@@ -1,11 +1,11 @@
 import type { Analysis } from '../ai/advisor';
 import { ALL_CARDS, cardName, cardsOf, maskName, popcount } from '../core/cards';
-import { canBeatAll, DEFAULT_RULES, isLegalLead, Rules } from '../core/rules';
+import { canBeatAll, DEFAULT_RULES, isLegalLead, raiseBlockedByScore, Rules } from '../core/rules';
 import { actKind, K_BEAT, K_GIVE, K_LEAD, Phase } from '../core/state';
 import { Obs, PlayerView } from '../core/view';
 import { AiClient } from './aiClient';
 import { analysisHtml, cardHtml, cardsHtml, esc, pickerHtml } from './common';
-import { readRule, rulesFormHtml } from './play';
+import { modeHtml, readRule, rulesFormHtml } from './play';
 
 const ME = 0, OPP = 1;
 type Think = 'fast' | 'normal' | 'deep';
@@ -32,7 +32,10 @@ export class AdvisorController {
   private error = '';
   private message = '';
   private reqId = 0;
-  /** Points from finished deals; the current deal's result is added when the next deal starts. */
+  /**
+   * Points from finished deals; the current deal's result is added when the next deal starts.
+   * In a match this is the match score, and it can be edited on the setup screen.
+   */
   private tally = [0, 0];
 
   constructor(private ai: AiClient, private update: () => void) {}
@@ -47,6 +50,14 @@ export class AdvisorController {
     const trumpSuit = this.setupTrump >= 0 ? (this.setupTrump / 5) | 0 : undefined;
     let h = '<p class="intro">Use this at a real table. Enter the deal, then tell the advisor what happens; it recommends your move ';
     h += 'from your cards alone and infers what the opponent probably holds from how they have played.</p>';
+    h += `<div class="settings">${modeHtml(this.rules)}`;
+    if (this.rules.matchTo) {
+      const max = this.rules.matchTo - 1;
+      const input = (seat: number) =>
+        `<input type="number" min="0" max="${max}" value="${this.tally[seat]}" data-change="setup-score" data-seat="${seat}">`;
+      h += `<label>Score: you ${input(ME)}</label><label>opponent ${input(OPP)}</label>`;
+    }
+    h += '</div>';
     h += '<h3>1. The face-up trump card</h3>';
     h += pickerHtml(ALL_CARDS & ~this.setupHand, this.setupTrump >= 0 ? 1 << this.setupTrump : 0, 'setup-trump', trumpSuit);
     h += '<h3>2. Your 3 cards</h3>';
@@ -74,7 +85,8 @@ export class AdvisorController {
     const trump = v.trumpSuit;
     const t = this.tally.slice();
     if (v.result) t[v.result.winner] += v.result.points;
-    let h = `<div class="scoreboard"><span>Tally: <b>You ${t[0]}</b> – <b>Opponent ${t[1]}</b></span>`;
+    const label = v.rules.matchTo ? `First to ${v.rules.matchTo}` : 'Tally';
+    let h = `<div class="scoreboard"><span>${label}: <b>You ${t[0]}</b> – <b>Opponent ${t[1]}</b></span>`;
     h += `<span>Stake <b>${v.stake}</b>${v.raiseRight === -1 ? '' : ` · next raise: ${v.raiseRight === ME ? 'you' : 'opponent'}`}</span></div>`;
 
     h += '<div class="status-grid">';
@@ -119,7 +131,14 @@ export class AdvisorController {
 
     if (v.result) {
       const r = v.result;
-      return `<div class="result ${r.winner === ME ? 'win' : 'loss'}"><h3>${r.winner === ME ? 'You win' : 'Opponent wins'} ${r.points} point${r.points > 1 ? 's' : ''}</h3>${btn('reset', 'Next deal', true, 'primary')}</div>`;
+      let h = `<div class="result ${r.winner === ME ? 'win' : 'loss'}"><h3>${r.winner === ME ? 'You win' : 'Opponent wins'} ${r.points} point${r.points > 1 ? 's' : ''}</h3>`;
+      const score = this.tally.slice();
+      score[r.winner] += r.points;
+      if (v.rules.matchTo && Math.max(...score) >= v.rules.matchTo) {
+        h += `<h3>${score[ME] >= v.rules.matchTo ? 'You win the match' : 'The opponent wins the match'} ${score[ME]}–${score[OPP]}</h3>`;
+        return h + btn('new-match', 'New match', true, 'primary') + '</div>';
+      }
+      return h + btn('reset', 'Next deal', true, 'primary') + '</div>';
     }
     if (v.phase === Phase.Over) {
       const last = this.history![this.history!.length - 1];
@@ -134,7 +153,11 @@ export class AdvisorController {
       return `<p>Which card did you draw?</p>${pickerHtml(v.unknownMask(), 0, 'draw', v.trumpSuit)}`;
     }
     const oppRaise = v.canRaise(OPP) ? btn('opp-raise', 'Opponent raised', true, 'secondary') : '';
-    const myRaise = v.canRaise(ME) ? btn('my-raise', `I raised (to ${v.stake + 1})`, true, 'secondary') : '';
+    const myRaise = v.canRaise(ME)
+      ? btn('my-raise', `I raised (to ${v.stake + 1})`, true, 'secondary')
+      : v.toAct === ME && raiseBlockedByScore(v.rules, v.matchScore, ME)
+        ? `<span class="muted">You may not raise while trailing 0–${v.rules.matchTo - 1}.</span>`
+        : '';
 
     switch (v.phase) {
       case Phase.Lead:
@@ -182,8 +205,23 @@ export class AdvisorController {
       case 'setup-leader':
         this.setupLeader = Number((el as HTMLInputElement).value);
         break;
-      case 'rule':
+      case 'rule': {
+        const before = this.rules.matchTo;
         this.rules = readRule(this.rules, el);
+        if (this.rules.matchTo !== before) this.tally = [0, 0];
+        break;
+      }
+      case 'setup-score': {
+        const max = Math.max(0, this.rules.matchTo - 1);
+        this.tally[Number(el.dataset.seat)] = Math.max(0, Math.min(max, Math.floor(Number((el as HTMLInputElement).value) || 0)));
+        break;
+      }
+      case 'new-match':
+        this.tally = [0, 0];
+        this.history = null;
+        this.view = null;
+        this.setupTrump = -1;
+        this.setupHand = 0;
         break;
       case 'think':
         this.think = (el as HTMLSelectElement).value as Think;
@@ -191,7 +229,10 @@ export class AdvisorController {
       case 'start':
         this.history = [];
         this.auto = [];
-        this.push({ t: 'deal', leader: this.setupLeader, trumpCard: this.setupTrump, hand: cardsOf(this.setupHand), rules: { ...this.rules } });
+        this.push({
+          t: 'deal', leader: this.setupLeader, trumpCard: this.setupTrump, hand: cardsOf(this.setupHand),
+          rules: { ...this.rules }, score: [this.tally[ME], this.tally[OPP]],
+        });
         return;
       case 'reset':
         if (this.view?.result) this.tally[this.view.result.winner] += this.view.result.points;

@@ -2,7 +2,7 @@ import type { Analysis } from '../ai/advisor';
 import { probReach } from '../ai/heuristic';
 import { ALL_CARDS, cardName, cardsOf, maskName, popcount } from '../core/cards';
 import { cryptoRng } from '../core/rng';
-import { beatOptions, DEFAULT_RULES, Rules } from '../core/rules';
+import { beatOptions, DEFAULT_RULES, raiseBlockedByScore, Rules } from '../core/rules';
 import {
   ACCEPT, CLAIM, CONTINUE, DECLINE, K_BEAT, K_GIVE, K_LEAD, mkAct, Phase, RAISE, shuffledDeck,
 } from '../core/state';
@@ -57,7 +57,8 @@ export class PlayController {
     }
     const s = this.runner.state;
     const v = this.runner.view(HUMAN);
-    html += `<div class="scoreboard"><span>Match: <b>You ${this.match[0]}</b> – <b>AI ${this.match[1]}</b></span>`;
+    const matchTo = s.rules.matchTo;
+    html += `<div class="scoreboard"><span>${matchTo ? `First to ${matchTo}` : 'Match'}: <b>You ${this.match[0]}</b> – <b>AI ${this.match[1]}</b></span>`;
     html += `<span>Stake <b>${s.stake}</b>${s.raiseRight === -1 ? '' : ` · next raise: ${who(s.raiseRight)}`}</span></div>`;
 
     html += '<div class="seat opp"><div class="seat-label">AI</div>';
@@ -92,6 +93,7 @@ export class PlayController {
     let h = '<div class="settings">';
     h += `<label>AI strength <select data-change="strength">${opt('easy', 'Easy (rules of thumb)', this.strength)}${opt('normal', 'Normal (0.8s search)', this.strength)}${opt('hard', 'Hard (2.5s search)', this.strength)}</select></label>`;
     h += `<label><input type="checkbox" data-change="hints"${this.hints ? ' checked' : ''}> Advisor hints</label>`;
+    h += modeHtml(this.rules);
     h += `<details><summary>Rules</summary>${rulesFormHtml(this.rules)}</details>`;
     h += `<button type="button" data-act="new-match">${this.runner ? 'New match' : 'Start match'}</button>`;
     return h + '</div>';
@@ -124,7 +126,11 @@ export class PlayController {
     const btn = (act: string, label: string, enabled = true, cls = '') =>
       `<button type="button" class="${cls}" data-act="${act}"${enabled ? '' : ' disabled'}>${esc(label)}</button>`;
     const legal = s.legal();
-    const raise = legal.includes(RAISE) ? btn('raise', `Raise stake to ${s.stake + 1}`, true, 'secondary') : '';
+    const raise = legal.includes(RAISE)
+      ? btn('raise', `Raise stake to ${s.stake + 1}`, true, 'secondary')
+      : raiseBlockedByScore(s.rules, s.matchScore, HUMAN) && (s.phase === Phase.Lead || s.phase === Phase.Respond)
+        ? `<span class="muted">No raising while you trail 0–${s.rules.matchTo - 1}.</span>`
+        : '';
     const sel = this.selected;
     switch (s.phase) {
       case Phase.Lead:
@@ -160,6 +166,12 @@ export class PlayController {
       h += cardsOf(s.piles[p]).map((c) => cardHtml(c, { trump: s.trumpSuit, small: true, title: (s.hidden[p] >> c) & 1 ? 'given face down' : undefined })).join('');
       h += '</div>';
     }
+    const matchTo = s.rules.matchTo;
+    if (matchTo && Math.max(...this.match) >= matchTo) {
+      const won = this.match[HUMAN] >= matchTo;
+      h += `<h3>${won ? 'You win the match' : 'The AI wins the match'} ${this.match[HUMAN]}–${this.match[AI]}</h3>`;
+      return h + '<button type="button" class="primary" data-act="new-match">New match</button></div>';
+    }
     return h + '<button type="button" class="primary" data-act="next-hand">Next hand</button></div>';
   }
 
@@ -180,9 +192,18 @@ export class PlayController {
         this.hints = (el as HTMLInputElement).checked;
         this.requestHint();
         break;
-      case 'rule':
+      case 'rule': {
+        const before = this.rules.matchTo;
         this.rules = readRule(this.rules, el);
+        if (this.rules.matchTo !== before) {
+          // A different scoring mode is a different match.
+          this.gen++;
+          this.runner = null;
+          this.match = [0, 0];
+          this.aiBusy = false;
+        }
         break;
+      }
       case 'sel':
         this.selected ^= 1 << Number(el.dataset.card);
         break;
@@ -200,7 +221,7 @@ export class PlayController {
 
   private startHand(): void {
     this.gen++;
-    this.runner = new HandRunner(shuffledDeck(cryptoRng()), this.nextLeader, { ...this.rules });
+    this.runner = new HandRunner(shuffledDeck(cryptoRng()), this.nextLeader, { ...this.rules }, [this.match[0], this.match[1]]);
     this.logged = 0;
     this.log = [];
     this.lastTrick = this.pendingLead = null;
@@ -329,6 +350,12 @@ function maskOf(cards: number[]): number {
   return cards.reduce((m, c) => m | (1 << c), 0);
 }
 
+/** Scoring mode selector: unlimited points or a match to 3. */
+export function modeHtml(r: Rules): string {
+  const opt = (v: number, label: string) => `<option value="${v}"${r.matchTo === v ? ' selected' : ''}>${label}</option>`;
+  return `<label>Mode <select data-change="rule" data-rule="matchTo">${opt(0, 'Points (no limit)')}${opt(3, 'First to 3')}</select></label>`;
+}
+
 export function rulesFormHtml(r: Rules): string {
   return `<div class="rules-form">
     <label>Max stake <input type="number" min="1" max="20" value="${r.maxStake}" data-change="rule" data-rule="maxStake"></label>
@@ -341,5 +368,6 @@ export function readRule(r: Rules, el: HTMLElement): Rules {
   const input = el as HTMLInputElement;
   const key = el.dataset.rule as keyof Rules;
   if (key === 'maxStake') return { ...r, maxStake: Math.max(1, Math.min(20, Number(input.value) || 1)) };
+  if (key === 'matchTo') return { ...r, matchTo: Number(input.value) || 0 };
   return { ...r, [key]: input.checked };
 }

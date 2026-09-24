@@ -36,6 +36,10 @@ npm run bench -- --a ismcts --b heuristic --deals 300 --iters 2000   # self-play
 - **Raising:** on your turn you may propose a raise. Declined → the proposer wins the current stake.
   Accepted → stake +1 and play continues; only the player who accepted may propose the next raise.
 
+- **Modes:** *Points* scores hands without a limit. *First to 3* is a match: the first player to 3 points
+  wins, and a player trailing **0–2 may not raise**. Both the advisor and play-vs-AI support both modes;
+  in the advisor you enter the current match score when you start a deal.
+
 Assumptions not yet confirmed (configurable in the *Rules* panel):
 
 1. The defender may also raise after seeing the lead (default **on**).
@@ -77,6 +81,10 @@ the search compares that with the value of playing on.
 **Stakes** (`src/ai/stake.ts`) are decided from the searched win chance *p*. Accepting a raise at stake
 *s* is correct when *p* > 1/(2(*s*+1)) — declining loses *s* for sure, accepting risks *s*+1 — plus a
 margin because the raise itself signals strength. The AI proposes a raise when *p* ≥ 0.7.
+In *first to 3* a point is not always worth the same, so every stake decision instead compares chances of
+winning the **match** (from a table that treats later hands as even): at 2–2 the stake cannot matter and
+the AI never raises; leading 2–0 it never raises either, since that only helps the opponent; trailing
+1–2 it accepts almost any raise, because losing the hand ends the match anyway.
 These thresholds were checked in self-play with raising on (1000–1500 duplicate deals per variant):
 raising only at *p* ≥ 0.8 loses about 0.07 points per hand, while raise thresholds from 0.55 to 0.7
 and accept margins from −0.05 to +0.08 are statistically indistinguishable.

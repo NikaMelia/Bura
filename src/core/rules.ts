@@ -7,9 +7,19 @@ export interface Rules {
   defenderMayRaise: boolean;
   /** Three trumps in hand (ბურა) wins the hand immediately. */
   buraWins: boolean;
+  /** Match length in points (first to reach it wins the match); 0 means hands are scored without a limit. */
+  matchTo: number;
 }
 
-export const DEFAULT_RULES: Rules = { maxStake: 8, defenderMayRaise: true, buraWins: false };
+export const DEFAULT_RULES: Rules = { maxStake: 8, defenderMayRaise: true, buraWins: false, matchTo: 0 };
+
+/** Match score before a hand, indexed by seat. */
+export type MatchScore = [number, number];
+
+/** In a match to N, a player at 0 while the opponent is one point from winning (2-0 in a match to 3) may not raise. */
+export function raiseBlockedByScore(rules: Rules, score: MatchScore, p: number): boolean {
+  return rules.matchTo > 0 && score[p] === 0 && score[1 - p] === rules.matchTo - 1;
+}
 
 /** Does card `a` beat card `b`? */
 export function beats(a: Card, b: Card, trump: number): boolean {

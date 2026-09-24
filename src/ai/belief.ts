@@ -1,5 +1,6 @@
 import { Card, cardsOf, maskOf, popcount } from '../core/cards';
 import { Rng } from '../core/rng';
+import { DEFAULT_RULES } from '../core/rules';
 import { GameState, K_BEAT, K_GIVE, K_LEAD, mkAct, K_CLAIM, K_CONTINUE, K_RAISE, K_ACCEPT, K_DECLINE } from '../core/state';
 import { Obs, PlayerView } from '../core/view';
 import { actionProbability } from './heuristic';
@@ -129,7 +130,7 @@ export function sampleWorlds(view: PlayerView, count: number, rng: Rng, opts: Be
 
 function replay(view: PlayerView, hist: Obs[], deck: Card[], giveAssign: Map<number, number>, opts: BeliefOptions): World | null {
   const deal = hist[0] as Extract<Obs, { t: 'deal' }>;
-  const s = GameState.deal(deck, deal.leader, deal.rules);
+  const s = GameState.deal(deck, deal.leader, { ...DEFAULT_RULES, ...deal.rules }, deal.score ?? [0, 0]);
   const opp = 1 - view.me;
   let weight = 1;
   for (let i = 1; i < hist.length; i++) {

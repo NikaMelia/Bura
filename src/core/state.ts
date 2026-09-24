@@ -1,5 +1,5 @@
 import { ALL_CARDS, Card, cardName, cardsOf, maskName, maskPoints, popcount, suitMask, suitOf, TARGET } from './cards';
-import { beatOptions, giveOptions, leadOptions, Rules } from './rules';
+import { beatOptions, giveOptions, leadOptions, MatchScore, raiseBlockedByScore, Rules } from './rules';
 
 export const Phase = { Lead: 0, Respond: 1, Claim: 2, Raise: 3, Over: 4, Draw: 5 } as const;
 export type Phase = (typeof Phase)[keyof typeof Phase];
@@ -35,6 +35,8 @@ export function describeAction(a: number): string {
  */
 export class GameState {
   rules!: Rules;
+  /** Match score before this hand. */
+  matchScore: MatchScore = [0, 0];
   trumpSuit = 0;
   trumpCard: Card = 0;
   hands = [0, 0];
@@ -66,10 +68,11 @@ export class GameState {
   drawLog: number[] = [];
 
   /** deck[0..5] are dealt alternately starting with the leader; deck[6] is the trump card; deck[7..19] is the stock. */
-  static deal(deck: Card[], leader: number, rules: Rules): GameState {
+  static deal(deck: Card[], leader: number, rules: Rules, score: MatchScore = [0, 0]): GameState {
     if (deck.length !== 20 || new Set(deck).size !== 20) throw new Error('A deck must hold the 20 distinct cards');
     const s = new GameState();
     s.rules = rules;
+    s.matchScore = score;
     s.leader = s.toAct = leader;
     for (let i = 0; i < 6; i++) s.hands[i % 2 === 0 ? leader : 1 - leader] |= 1 << deck[i];
     s.trumpCard = deck[6];
@@ -83,6 +86,7 @@ export class GameState {
   clone(): GameState {
     const s: GameState = Object.create(GameState.prototype);
     s.rules = this.rules;
+    s.matchScore = this.matchScore;
     s.trumpSuit = this.trumpSuit;
     s.trumpCard = this.trumpCard;
     s.hands = [this.hands[0], this.hands[1]];
@@ -123,7 +127,7 @@ export class GameState {
   canRaise(p: number): boolean {
     if (this.noRaise || this.stake >= this.rules.maxStake) return false;
     if (this.raiseRight !== -1 && this.raiseRight !== p) return false;
-    if (this.toAct !== p) return false;
+    if (this.toAct !== p || raiseBlockedByScore(this.rules, this.matchScore, p)) return false;
     if (this.phase === Phase.Lead) return true;
     return this.phase === Phase.Respond && this.rules.defenderMayRaise;
   }

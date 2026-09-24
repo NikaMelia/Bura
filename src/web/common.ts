@@ -92,7 +92,11 @@ export function analysisHtml(a: Analysis | null, loading: boolean, error?: strin
     html += `<p class="note">Chance your pile is worth 31+: <b>${pct(r.claimProb)}</b> · expected pile ${r.expectedScore.toFixed(1)} points</p>`;
   }
   if (a.canRaise) {
-    html += `<p class="note">Raise: ${a.raiseRecommended ? '<b>yes</b>' : 'not now'} (raise at ≥70% win chance)</p>`;
+    const why = a.matchWinProb === undefined ? 'raise at ≥70% win chance' : 'judged by the match score';
+    html += `<p class="note">Raise: ${a.raiseRecommended ? '<b>yes</b>' : 'not now'} (${why})</p>`;
+  }
+  if (a.matchWinProb !== undefined) {
+    html += `<p class="note">Chance to win the match: <b>${pct(a.matchWinProb)}</b> (later hands counted as even)</p>`;
   }
 
   if (r.actions.length > 1) {

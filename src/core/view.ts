@@ -1,10 +1,10 @@
 import { ALL_CARDS, Card, cardName, cardsOf, maskOf, maskPoints, popcount } from './cards';
-import { beatOptions, canBeatAll, giveOptions, isLegalLead, leadOptions, Rules } from './rules';
+import { beatOptions, canBeatAll, DEFAULT_RULES, giveOptions, isLegalLead, leadOptions, MatchScore, raiseBlockedByScore, Rules } from './rules';
 import { ACCEPT, CLAIM, CONTINUE, DECLINE, EndReason, GameState, K_BEAT, K_GIVE, K_LEAD, mkAct, Phase, RAISE } from './state';
 
 /** What one player observes. Everything the AI knows about a hand is a list of these. */
 export type Obs =
-  | { t: 'deal'; leader: number; trumpCard: Card; hand: Card[]; rules: Rules }
+  | { t: 'deal'; leader: number; trumpCard: Card; hand: Card[]; rules: Rules; score?: MatchScore }
   | { t: 'lead'; p: number; cards: Card[] }
   | { t: 'beat'; p: number; cards: Card[] }
   | { t: 'give'; p: number; count: number; cards?: Card[] }
@@ -29,6 +29,8 @@ export interface HandResult {
 export class PlayerView {
   readonly me: number;
   rules!: Rules;
+  /** Match score before this hand, by seat. */
+  matchScore: MatchScore = [0, 0];
   history: Obs[] = [];
   trumpCard: Card = -1;
   trumpSuit = 0;
@@ -101,6 +103,7 @@ export class PlayerView {
   canRaise(p: number): boolean {
     if (this.over || this.stake >= this.rules.maxStake || this.toAct !== p) return false;
     if (this.raiseRight !== -1 && this.raiseRight !== p) return false;
+    if (raiseBlockedByScore(this.rules, this.matchScore, p)) return false;
     if (this.phase === Phase.Lead) return true;
     return this.phase === Phase.Respond && this.rules.defenderMayRaise;
   }
@@ -229,7 +232,8 @@ export class PlayerView {
     const hand = maskOf(o.hand);
     if (o.hand.length !== 3 || popcount(hand) !== 3) throw new Error('You need exactly 3 cards');
     if (hand & (1 << o.trumpCard)) throw new Error('The trump card cannot be in your hand');
-    this.rules = o.rules;
+    this.rules = { ...DEFAULT_RULES, ...o.rules };
+    this.matchScore = o.score ?? [0, 0];
     this.trumpCard = o.trumpCard;
     this.trumpSuit = (o.trumpCard / 5) | 0;
     this.firstLeader = this.leader = this.toAct = o.leader;
@@ -336,10 +340,10 @@ export class HandRunner {
   readonly obs: [Obs[], Obs[]] = [[], []];
   readonly views: [PlayerView, PlayerView] = [new PlayerView(0), new PlayerView(1)];
 
-  constructor(deck: Card[], leader: number, rules: Rules) {
-    this.state = GameState.deal(deck, leader, rules);
+  constructor(deck: Card[], leader: number, rules: Rules, score: MatchScore = [0, 0]) {
+    this.state = GameState.deal(deck, leader, rules, score);
     for (const p of [0, 1]) {
-      this.emit(p, { t: 'deal', leader, trumpCard: this.state.trumpCard, hand: cardsOf(this.state.hands[p]), rules });
+      this.emit(p, { t: 'deal', leader, trumpCard: this.state.trumpCard, hand: cardsOf(this.state.hands[p]), rules, score });
     }
     this.emitEndIfOver();
   }

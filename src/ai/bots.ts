@@ -2,7 +2,7 @@ import { ALL_CARDS } from '../core/cards';
 import { randomSeed, Rng, seededRng } from '../core/rng';
 import { ACCEPT, CLAIM, CONTINUE, DECLINE, Phase, RAISE } from '../core/state';
 import { PlayerView } from '../core/view';
-import { AdvisorOptions, analyze } from './advisor';
+import { AdvisorOptions, analyze, stakeContext } from './advisor';
 import { sampleWorlds } from './belief';
 import { bestHeuristicAction, CLAIM_THRESHOLD, policyAction, probReach } from './heuristic';
 import { shouldAccept, shouldRaise } from './stake';
@@ -36,8 +36,8 @@ export class HeuristicBot implements Bot {
       const p = probReach(view.myKnownPoints(), view.myHiddenCount, ALL_CARDS & ~seenMask(view));
       return p >= CLAIM_THRESHOLD ? CLAIM : CONTINUE;
     }
-    if (view.phase === Phase.Raise) return shouldAccept(this.quickWinProb(view, true), view.stake) ? ACCEPT : DECLINE;
-    if (this.raises && view.canRaise(view.me) && shouldRaise(this.quickWinProb(view, false))) return RAISE;
+    if (view.phase === Phase.Raise) return shouldAccept(this.quickWinProb(view, true), stakeContext(view)) ? ACCEPT : DECLINE;
+    if (this.raises && view.canRaise(view.me) && shouldRaise(this.quickWinProb(view, false), stakeContext(view))) return RAISE;
     const s = sampleWorlds(view, 1, this.rng, noInference)[0].state;
     s.noRaise = true;
     return bestHeuristicAction(s, s.legal());
