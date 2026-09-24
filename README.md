@@ -77,6 +77,9 @@ the search compares that with the value of playing on.
 **Stakes** (`src/ai/stake.ts`) are decided from the searched win chance *p*. Accepting a raise at stake
 *s* is correct when *p* > 1/(2(*s*+1)) — declining loses *s* for sure, accepting risks *s*+1 — plus a
 margin because the raise itself signals strength. The AI proposes a raise when *p* ≥ 0.7.
+These thresholds were checked in self-play with raising on (1000–1500 duplicate deals per variant):
+raising only at *p* ≥ 0.8 loses about 0.07 points per hand, while raise thresholds from 0.55 to 0.7
+and accept margins from −0.05 to +0.08 are statistically indistinguishable.
 
 ## How strong is it?
 
